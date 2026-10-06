@@ -4,15 +4,10 @@ from collections import Counter, defaultdict
 import numpy as np
 import pandas as pd
 import streamlit as st
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# Scikit-learn import handling
-try:
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.metrics.pairwise import cosine_similarity
-except ImportError:
-    st.error("Missing dependency: scikit-learn. Please ensure it is added to requirements.txt.")
-
-# --- STREAMLIT PAGE CONFIGURATION ---
+# --- STREAMLIT PAGE CONFIGURATION (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(
     page_title="AI Exam Intelligence & PYQ Predictor Platform",
     page_icon="🎓",
@@ -288,116 +283,4 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📝 Or Paste Question Paper Text")
     pasted_text = st.text_area("Paste text here if PDF is not available", height=150)
-    pasted_year = st.number_input("Year of Pasted Paper", min_value=2015, max_value=2026, value=2025)
-
-    run_analysis = st.button("🚀 Analyze Exam Intelligence", type="primary")
-
-# --- APP EXECUTION CONTROLLER ---
-if run_analysis:
-    all_questions = []
-
-    if uploaded_files:
-        for idx, file in enumerate(uploaded_files):
-            year_match = re.search(r"\b(20\d{2})\b", file.name)
-            year = int(year_match.group(1)) if year_match else (2025 - idx)
-
-            raw_txt = extract_text_from_pdf(file)
-            if raw_txt:
-                q_parsed = parse_questions_from_text(raw_txt, year)
-                all_questions.extend(q_parsed)
-
-    if pasted_text.strip():
-        q_parsed = parse_questions_from_text(pasted_text, int(pasted_year))
-        all_questions.extend(q_parsed)
-
-    if not all_questions:
-        st.error("⚠️ No readable question text found! Please upload valid PYQ PDFs or paste paper text.")
-    else:
-        with st.spinner("Analyzing semantic question similarities & past patterns..."):
-            processed_db = analyze_semantic_repetitions(all_questions)
-
-        concept_groups = defaultdict(list)
-        for q in processed_db:
-            concept_groups[q["concept"]].append(q)
-
-        predictions = []
-        for concept, group in concept_groups.items():
-            pred = calculate_explainable_score(concept, group)
-            predictions.append(pred)
-
-        predictions.sort(key=lambda x: x["score"], reverse=True)
-
-        st.success(f"Successfully parsed **{len(processed_db)} questions** across multiple years!")
-
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Analyzed Questions", len(processed_db))
-        col2.metric("Core Concepts Identified", len(predictions))
-        col3.metric("Highest Prediction Score", f"{predictions[0]['score']}/100")
-        col4.metric("Data Quality", "HIGH" if len(uploaded_files) >= 3 else "MEDIUM")
-
-        st.markdown("---")
-
-        tab1, tab2, tab3, tab4 = st.tabs(
-            [
-                "🔥 Predicted Priority Questions",
-                "📅 Smart Study Priority Plan",
-                "🎥 Verified YouTube & Free Resources",
-                "📈 10-Year Trend Dashboard",
-            ]
-        )
-
-        with tab1:
-            st.subheader("🔥 Evidence-Based Priority Predictions")
-            for pred in predictions:
-                with st.expander(f"{pred['priority']} — **{pred['concept']}** (Score: {pred['score']}/100)"):
-                    st.markdown("**Sample Representative Question:**")
-                    st.info(f"\"{pred['sample_question']}\"")
-                    st.markdown("#### 🧠 Why this prediction? (XAI Evidence)")
-                    for r in pred["reasons"]:
-                        st.write(f"• {r}")
-                    st.markdown(f"**Appeared Years:** {', '.join(map(str, pred['years']))}")
-
-        with tab2:
-            st.subheader("📅 Time-Based Revision Planner")
-            plan_days = st.radio("Select available preparation time:", ["1 Day Preparation (Emergency)", "3 Days Preparation", "7 Days Preparation"], horizontal=True)
-            limit = 2 if "1 Day" in plan_days else (4 if "3 Days" in plan_days else 6)
-            top_topics = predictions[:limit]
-
-            for idx, item in enumerate(top_topics, 1):
-                st.markdown(f"### **Priority {idx}: {item['concept']}** (Predicted Score: {item['score']}/100)")
-                st.progress(item["score"] / 100)
-                st.write(f"**Action:** Master core theoretical principles and solve at least 3 previous variations from years {', '.join(map(str, item['years']))}.")
-                st.markdown("---")
-
-        with tab3:
-            st.subheader("🎥 Topic-Wise Free YouTube Learning Resources")
-            for pred in predictions:
-                res = YOUTUBE_RESOURCES.get(
-                    pred["concept"],
-                    {
-                        "channel": "Standard Academic Channel",
-                        "teacher": "Subject Specialist",
-                        "best_for": "Complete Syllabus Lectures & PYQ Practice",
-                        "url": f"https://www.youtube.com/results?search_query={pred['concept'].replace(' ', '+')}+pyq",
-                    },
-                )
-                st.markdown(f"### 📌 Topic: **{pred['concept']}**")
-                res_col1, res_col2 = st.columns([2, 1])
-                with res_col1:
-                    st.write(f"• **Recommended Channel:** {res['channel']}")
-                    st.write(f"• **Educator / Teacher:** {res['teacher']}")
-                    st.write(f"• **Best For:** {res['best_for']}")
-                with res_col2:
-                    st.link_button(f"▶️ Watch Free on YouTube", res["url"], type="primary")
-                st.markdown("---")
-
-        with tab4:
-            st.subheader("📈 Concept Distribution & Frequency Chart")
-            chart_data = pd.DataFrame(
-                {
-                    "Concept": [p["concept"] for p in predictions],
-                    "Prediction Score": [p["score"] for p in predictions],
-                    "PYQ Occurrences": [p["frequency"] for p in predictions],
-                }
-            ).set_index("Concept")
-            st.bar_chart(chart_data)
+    pasted_year = st.number_input("Year of Pasted Paper", min_value=2015, max_value=2026,
