@@ -7,15 +7,15 @@ import streamlit as st
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# --- STREAMLIT PAGE CONFIGURATION (MUST BE THE FIRST STREAMLIT COMMAND) ---
+# --- 1. STREAMLIT PAGE CONFIG (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(
-    page_title="AI Exam Intelligence & PYQ Predictor Platform",
+    page_title="AI Exam Intelligence Platform",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# --- CUSTOM CSS FOR HIGH-END UI ---
+# --- 2. CUSTOM STYLING ---
 st.markdown(
     """
     <style>
@@ -25,36 +25,14 @@ st.markdown(
         border-radius: 8px;
         border: 1px solid #1e293b;
     }
-    .must-practice {
-        border-left: 5px solid #ef4444;
-        background-color: #1e1b1b;
-        padding: 12px;
-        border-radius: 6px;
-        margin-bottom: 10px;
-    }
-    .very-important {
-        border-left: 5px solid #f97316;
-        background-color: #1c1917;
-        padding: 12px;
-        border-radius: 6px;
-        margin-bottom: 10px;
-    }
-    .important {
-        border-left: 5px solid #eab308;
-        background-color: #1a1a14;
-        padding: 12px;
-        border-radius: 6px;
-        margin-bottom: 10px;
-    }
     </style>
 """,
     unsafe_html=True,
 )
 
 
-# --- PDF PARSING ENGINE ---
+# --- 3. HELPER FUNCTIONS ---
 def extract_text_from_pdf(uploaded_file):
-    """Extracts raw text from uploaded PDF file using PyPDF2 with fallback."""
     try:
         import PyPDF2
 
@@ -70,7 +48,6 @@ def extract_text_from_pdf(uploaded_file):
         return ""
 
 
-# --- STOPWORDS & REGEX DEFINITIONS ---
 STOPWORDS = {
     "following", "given", "which", "statement", "correct", "incorrect", "below",
     "select", "choose", "option", "true", "false", "data", "science", "intelligence",
@@ -90,9 +67,7 @@ CONCEPT_MAPPER = {
 }
 
 
-# --- QUESTION EXTRACTION & MAPPING ---
 def parse_questions_from_text(raw_text, year):
-    """Splits raw paper text into individual questions and identifies concepts."""
     raw_questions = [
         q.strip()
         for q in re.split(r"\n(?=\d+[\.\)]|\bQ\d+)", raw_text)
@@ -126,9 +101,7 @@ def parse_questions_from_text(raw_text, year):
     return parsed_list
 
 
-# --- SEMANTIC REPETITION ENGINE (TF-IDF + COSINE SIMILARITY) ---
 def analyze_semantic_repetitions(questions_db, similarity_threshold=0.45):
-    """Calculates semantic similarity across multiple paper questions."""
     if not questions_db:
         return []
 
@@ -175,9 +148,7 @@ def analyze_semantic_repetitions(questions_db, similarity_threshold=0.45):
     return processed_questions
 
 
-# --- PREDICTION SCORING ENGINE ---
 def calculate_explainable_score(concept_name, questions_group, total_years_span=5):
-    """Generates normalized prediction score (0-100) with detailed evidence."""
     years = sorted(
         list(
             set(
@@ -269,18 +240,153 @@ YOUTUBE_RESOURCES = {
 }
 
 
-# --- MAIN APP INTERFACE ---
+# --- 4. MAIN USER INTERFACE ---
 st.title("🎓 AI Exam Intelligence & Multi-Year PYQ Predictor")
-st.caption("Explainable Exam Analytics Engine: Evidence-based Prediction, Semantic Repetition Matching & Free Learning Mapping")
+st.caption("Evidence-Based Prediction & PYQ Analytics Engine")
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("⚙️ Data Input Panel")
+    st.header("⚙ Data Input Panel")
     exam_name = st.text_input("Subject / Exam Name", value="Data Science & AI")
-
-    uploaded_files = st.file_uploader("Upload PYQ Papers (PDF)", type=["pdf"], accept_multiple_files=True)
-
+    uploaded_files = st.file_uploader(
+        "Upload PYQ Papers (PDF)", type=["pdf"], accept_multiple_files=True
+    )
     st.markdown("---")
-    st.subheader("📝 Or Paste Question Paper Text")
     pasted_text = st.text_area("Paste text here if PDF is not available", height=150)
-    pasted_year = st.number_input("Year of Pasted Paper", min_value=2015, max_value=2026,
+    pasted_year = st.number_input(
+        "Year of Pasted Paper", min_value=2015, max_value=2026, value=2025
+    )
+    run_analysis = st.button("🚀 Analyze Exam Intelligence", type="primary")
+
+# --- EXECUTION LOGIC ---
+if run_analysis:
+    all_questions = []
+
+    if uploaded_files:
+        for idx, file in enumerate(uploaded_files):
+            year_match = re.search(r"\b(20\d{2})\b", file.name)
+            year = int(year_match.group(1)) if year_match else (2025 - idx)
+            raw_txt = extract_text_from_pdf(file)
+            if raw_txt:
+                q_parsed = parse_questions_from_text(raw_txt, year)
+                all_questions.extend(q_parsed)
+
+    if pasted_text.strip():
+        q_parsed = parse_questions_from_text(pasted_text, int(pasted_year))
+        all_questions.extend(q_parsed)
+
+    if not all_questions:
+        st.error(
+            "⚠️ No readable question text found! Please upload valid PYQ PDFs or paste paper text."
+        )
+    else:
+        with st.spinner(
+            "Analyzing semantic question similarities & past patterns..."
+        ):
+            processed_db = analyze_semantic_repetitions(all_questions)
+
+        concept_groups = defaultdict(list)
+        for q in processed_db:
+            concept_groups[q["concept"]].append(q)
+
+        predictions = []
+        for concept, group in concept_groups.items():
+            pred = calculate_explainable_score(concept, group)
+            predictions.append(pred)
+
+        predictions.sort(key=lambda x: x["score"], reverse=True)
+
+        st.success(
+            f"Successfully parsed **{len(processed_db)} questions** across multiple years!"
+        )
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Analyzed Questions", len(processed_db))
+        col2.metric("Core Concepts Identified", len(predictions))
+        col3.metric("Highest Prediction Score", f"{predictions[0]['score']}/100")
+        col4.metric("Data Quality", "HIGH" if len(uploaded_files) >= 3 else "MEDIUM")
+
+        st.markdown("---")
+
+        tab1, tab2, tab3, tab4 = st.tabs(
+            [
+                "🔥 Predicted Priority Questions",
+                "📅 Smart Study Priority Plan",
+                "🎥 Verified YouTube & Free Resources",
+                "📈 10-Year Trend Dashboard",
+            ]
+        )
+
+        with tab1:
+            st.subheader("🔥 Evidence-Based Priority Predictions")
+            for pred in predictions:
+                with st.expander(
+                    f"{pred['priority']} — **{pred['concept']}** (Score: {pred['score']}/100)"
+                ):
+                    st.markdown("**Sample Representative Question:**")
+                    st.info(f"\"{pred['sample_question']}\"")
+                    st.markdown("#### 🧠 Why this prediction?")
+                    for r in pred["reasons"]:
+                        st.write(f"• {r}")
+                    st.markdown(
+                        f"**Appeared Years:** {', '.join(map(str, pred['years']))}"
+                    )
+
+        with tab2:
+            st.subheader("📅 Time-Based Revision Planner")
+            plan_days = st.radio(
+                "Select available preparation time:",
+                [
+                    "1 Day Preparation (Emergency)",
+                    "3 Days Preparation",
+                    "7 Days Preparation",
+                ],
+                horizontal=True,
+            )
+            limit = 2 if "1 Day" in plan_days else (4 if "3 Days" in plan_days else 6)
+            top_topics = predictions[:limit]
+
+            for idx, item in enumerate(top_topics, 1):
+                st.markdown(
+                    f"### **Priority {idx}: {item['concept']}** (Predicted Score: {item['score']}/100)"
+                )
+                st.progress(item["score"] / 100)
+                st.write(
+                    f"**Action:** Master core theoretical principles and solve at least 3 previous variations from years {', '.join(map(str, item['years']))}."
+                )
+                st.markdown("---")
+
+        with tab3:
+            st.subheader("🎥 Topic-Wise Free YouTube Learning Resources")
+            for pred in predictions:
+                res = YOUTUBE_RESOURCES.get(
+                    pred["concept"],
+                    {
+                        "channel": "Standard Academic Channel",
+                        "teacher": "Subject Specialist",
+                        "best_for": "Complete Syllabus Lectures & PYQ Practice",
+                        "url": f"https://www.youtube.com/results?search_query={pred['concept'].replace(' ', '+')}+pyq",
+                    },
+                )
+                st.markdown(f"### 📌 Topic: **{pred['concept']}**")
+                res_col1, res_col2 = st.columns([2, 1])
+                with res_col1:
+                    st.write(f"• **Recommended Channel:** {res['channel']}")
+                    st.write(f"• **Educator / Teacher:** {res['teacher']}")
+                    st.write(f"• **Best For:** {res['best_for']}")
+                with res_col2:
+                    st.link_button(
+                        f"▶️ Watch Free on YouTube", res["url"], type="primary"
+                    )
+                st.markdown("---")
+
+        with tab4:
+            st.subheader("📈 Concept Distribution & Frequency Chart")
+            chart_data = pd.DataFrame(
+                {
+                    "Concept": [p["concept"] for p in predictions],
+                    "Prediction Score": [p["score"] for p in predictions],
+                    "PYQ Occurrences": [p["frequency"] for p in predictions],
+                }
+            ).set_index("Concept")
+            st.bar_chart(chart_data)
