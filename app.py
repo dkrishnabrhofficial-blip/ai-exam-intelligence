@@ -4,8 +4,13 @@ from collections import Counter, defaultdict
 import numpy as np
 import pandas as pd
 import streamlit as st
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+
+# Scikit-learn import handling
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+except ImportError:
+    st.error("Missing dependency: scikit-learn. Please ensure it is added to requirements.txt.")
 
 # --- STREAMLIT PAGE CONFIGURATION ---
 st.set_page_config(
@@ -72,42 +77,11 @@ def extract_text_from_pdf(uploaded_file):
 
 # --- STOPWORDS & REGEX DEFINITIONS ---
 STOPWORDS = {
-    "following",
-    "given",
-    "which",
-    "statement",
-    "correct",
-    "incorrect",
-    "below",
-    "select",
-    "choose",
-    "option",
-    "true",
-    "false",
-    "data",
-    "science",
-    "intelligence",
-    "organizing",
-    "question",
-    "answer",
-    "find",
-    "calculate",
-    "value",
-    "consider",
-    "regarding",
-    "based",
-    "among",
-    "these",
-    "where",
-    "when",
-    "what",
-    "how",
-    "explain",
-    "describe",
-    "discuss",
-    "write",
-    "short",
-    "notes",
+    "following", "given", "which", "statement", "correct", "incorrect", "below",
+    "select", "choose", "option", "true", "false", "data", "science", "intelligence",
+    "organizing", "question", "answer", "find", "calculate", "value", "consider",
+    "regarding", "based", "among", "these", "where", "when", "what", "how",
+    "explain", "describe", "discuss", "write", "short", "notes",
 }
 
 CONCEPT_MAPPER = {
@@ -166,7 +140,7 @@ def analyze_semantic_repetitions(questions_db, similarity_threshold=0.45):
     texts = [q["clean_text"] for q in questions_db if q["clean_text"]]
     if len(texts) < 2:
         for q in questions_db:
-            q["semantic_cluster_id"] = 0
+            q["cluster_id"] = 0
             q["repeat_count"] = 1
             q["years_appeared"] = [q["year"]]
         return questions_db
@@ -191,7 +165,6 @@ def analyze_semantic_repetitions(questions_db, similarity_threshold=0.45):
 
         clusters.append(current_cluster)
 
-    # Assign Cluster Metadata
     processed_questions = []
     for cluster_id, cluster_indices in enumerate(clusters):
         years = list(set([questions_db[idx]["year"] for idx in cluster_indices]))
@@ -202,7 +175,6 @@ def analyze_semantic_repetitions(questions_db, similarity_threshold=0.45):
             q["cluster_id"] = cluster_id
             q["repeat_count"] = repeat_count
             q["years_appeared"] = sorted(years)
-            q["semantic_score"] = float(np.mean([sim_matrix[idx][m] for m in cluster_indices]))
             processed_questions.append(q)
 
     return processed_questions
@@ -224,37 +196,23 @@ def calculate_explainable_score(concept_name, questions_group, total_years_span=
     )
     freq = len(questions_group)
 
-    # Factor 1: Frequency Score (30%)
     freq_score = min(100, (freq / max(1, total_years_span)) * 100) * 0.30
-
-    # Factor 2: Recency Score (25%) - 2025/2026 carries higher weight
     max_year = max(years) if years else 2020
     recency_score = (1.0 if max_year >= 2024 else 0.5) * 100 * 0.25
-
-    # Factor 3: Semantic Repetition Score (20%)
     avg_repeats = np.mean([q.get("repeat_count", 1) for q in questions_group])
     semantic_score = min(100, (avg_repeats / 3) * 100) * 0.20
-
-    # Factor 4: Rotation / Gap Score (15%)
     gap = 2026 - max_year
     gap_score = (80 if gap == 1 else (100 if gap == 2 else 40)) * 0.15
-
-    # Factor 5: Trend Score (10%)
     trend_score = (100 if len(years) >= 3 else 50) * 0.10
 
     total_score = int(
         np.clip(
-            freq_score
-            + recency_score
-            + semantic_score
-            + gap_score
-            + trend_score,
+            freq_score + recency_score + semantic_score + gap_score + trend_score,
             10,
             98,
         )
     )
 
-    # Priority Bucket
     if total_score >= 80:
         priority = "🔴 MUST PRACTICE"
     elif total_score >= 65:
@@ -264,7 +222,6 @@ def calculate_explainable_score(concept_name, questions_group, total_years_span=
     else:
         priority = "🟢 GOOD TO PRACTICE"
 
-    # Evidence Reason Generation
     reasons = [
         f"Historical Frequency: Appeared across {len(years)} past papers ({', '.join(map(str, years))}).",
         f"Recency Weight: Last asked in {max_year} (Recency gap: {gap} year/s).",
@@ -279,13 +236,10 @@ def calculate_explainable_score(concept_name, questions_group, total_years_span=
         "frequency": freq,
         "years": years,
         "reasons": reasons,
-        "sample_question": questions_group[0]["text"]
-        if questions_group
-        else "",
+        "sample_question": questions_group[0]["text"] if questions_group else "",
     }
 
 
-# --- RESOURCE & YOUTUBE MAPPING ENGINE ---
 YOUTUBE_RESOURCES = {
     "Probability & Bayes' Theorem": {
         "channel": "Gate Smashers / NISO Academy",
@@ -322,20 +276,14 @@ YOUTUBE_RESOURCES = {
 
 # --- MAIN APP INTERFACE ---
 st.title("🎓 AI Exam Intelligence & Multi-Year PYQ Predictor")
-st.caption(
-    "Explainable Exam Analytics Engine: Evidence-based Prediction, Semantic Repetition Matching & Free Learning Mapping"
-)
+st.caption("Explainable Exam Analytics Engine: Evidence-based Prediction, Semantic Repetition Matching & Free Learning Mapping")
 
-# --- SIDEBAR INPUT CONTROL ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Data Input Panel")
-    exam_name = st.text_input(
-        "Subject / Exam Name", value="Data Science & Artificial Intelligence"
-    )
+    exam_name = st.text_input("Subject / Exam Name", value="Data Science & AI")
 
-    uploaded_files = st.file_uploader(
-        "Upload PYQ Papers (PDF)", type=["pdf"], accept_multiple_files=True
-    )
+    uploaded_files = st.file_uploader("Upload PYQ Papers (PDF)", type=["pdf"], accept_multiple_files=True)
 
     st.markdown("---")
     st.subheader("📝 Or Paste Question Paper Text")
@@ -348,10 +296,8 @@ with st.sidebar:
 if run_analysis:
     all_questions = []
 
-    # Process PDFs
     if uploaded_files:
         for idx, file in enumerate(uploaded_files):
-            # Extract year from filename if possible, else default
             year_match = re.search(r"\b(20\d{2})\b", file.name)
             year = int(year_match.group(1)) if year_match else (2025 - idx)
 
@@ -360,26 +306,20 @@ if run_analysis:
                 q_parsed = parse_questions_from_text(raw_txt, year)
                 all_questions.extend(q_parsed)
 
-    # Process Pasted Text
     if pasted_text.strip():
         q_parsed = parse_questions_from_text(pasted_text, int(pasted_year))
         all_questions.extend(q_parsed)
 
     if not all_questions:
-        st.error(
-            "⚠️ No readable question text found! Please upload valid PYQ PDFs or paste paper text."
-        )
+        st.error("⚠️ No readable question text found! Please upload valid PYQ PDFs or paste paper text.")
     else:
-        # Step 1: Semantic Repetition Engine
         with st.spinner("Analyzing semantic question similarities & past patterns..."):
             processed_db = analyze_semantic_repetitions(all_questions)
 
-        # Step 2: Group by Concepts
         concept_groups = defaultdict(list)
         for q in processed_db:
             concept_groups[q["concept"]].append(q)
 
-        # Step 3: Compute Explainable Score per Concept
         predictions = []
         for concept, group in concept_groups.items():
             pred = calculate_explainable_score(concept, group)
@@ -387,24 +327,16 @@ if run_analysis:
 
         predictions.sort(key=lambda x: x["score"], reverse=True)
 
-        # --- DASHBOARD LAYOUT ---
-        st.success(
-            f"Successfully parsed **{len(processed_db)} questions** across multiple years!"
-        )
+        st.success(f"Successfully parsed **{len(processed_db)} questions** across multiple years!")
 
-        # TOP DASHBOARD METRICS
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Analyzed Questions", len(processed_db))
         col2.metric("Core Concepts Identified", len(predictions))
         col3.metric("Highest Prediction Score", f"{predictions[0]['score']}/100")
-        col4.metric(
-            "Data Quality Confidence",
-            "HIGH" if len(uploaded_files) >= 3 else "MEDIUM",
-        )
+        col4.metric("Data Quality", "HIGH" if len(uploaded_files) >= 3 else "MEDIUM")
 
         st.markdown("---")
 
-        # TAB LAYOUT FOR ORGANIZED OUTPUT
         tab1, tab2, tab3, tab4 = st.tabs(
             [
                 "🔥 Predicted Priority Questions",
@@ -414,6 +346,58 @@ if run_analysis:
             ]
         )
 
-        # TAB 1: PREDICTED PRIORITY QUESTIONS (XAI)
         with tab1:
-            st.
+            st.subheader("🔥 Evidence-Based Priority Predictions")
+            for pred in predictions:
+                with st.expander(f"{pred['priority']} — **{pred['concept']}** (Score: {pred['score']}/100)"):
+                    st.markdown("**Sample Representative Question:**")
+                    st.info(f"\"{pred['sample_question']}\"")
+                    st.markdown("#### 🧠 Why this prediction? (XAI Evidence)")
+                    for r in pred["reasons"]:
+                        st.write(f"• {r}")
+                    st.markdown(f"**Appeared Years:** {', '.join(map(str, pred['years']))}")
+
+        with tab2:
+            st.subheader("📅 Time-Based Revision Planner")
+            plan_days = st.radio("Select available preparation time:", ["1 Day Preparation (Emergency)", "3 Days Preparation", "7 Days Preparation"], horizontal=True)
+            limit = 2 if "1 Day" in plan_days else (4 if "3 Days" in plan_days else 6)
+            top_topics = predictions[:limit]
+
+            for idx, item in enumerate(top_topics, 1):
+                st.markdown(f"### **Priority {idx}: {item['concept']}** (Predicted Score: {item['score']}/100)")
+                st.progress(item["score"] / 100)
+                st.write(f"**Action:** Master core theoretical principles and solve at least 3 previous variations from years {', '.join(map(str, item['years']))}.")
+                st.markdown("---")
+
+        with tab3:
+            st.subheader("🎥 Topic-Wise Free YouTube Learning Resources")
+            for pred in predictions:
+                res = YOUTUBE_RESOURCES.get(
+                    pred["concept"],
+                    {
+                        "channel": "Standard Academic Channel",
+                        "teacher": "Subject Specialist",
+                        "best_for": "Complete Syllabus Lectures & PYQ Practice",
+                        "url": f"https://www.youtube.com/results?search_query={pred['concept'].replace(' ', '+')}+pyq",
+                    },
+                )
+                st.markdown(f"### 📌 Topic: **{pred['concept']}**")
+                res_col1, res_col2 = st.columns([2, 1])
+                with res_col1:
+                    st.write(f"• **Recommended Channel:** {res['channel']}")
+                    st.write(f"• **Educator / Teacher:** {res['teacher']}")
+                    st.write(f"• **Best For:** {res['best_for']}")
+                with res_col2:
+                    st.link_button(f"▶️ Watch Free on YouTube", res["url"], type="primary")
+                st.markdown("---")
+
+        with tab4:
+            st.subheader("📈 Concept Distribution & Frequency Chart")
+            chart_data = pd.DataFrame(
+                {
+                    "Concept": [p["concept"] for p in predictions],
+                    "Prediction Score": [p["score"] for p in predictions],
+                    "PYQ Occurrences": [p["frequency"] for p in predictions],
+                }
+            ).set_index("Concept")
+            st.bar_chart(chart_data)
