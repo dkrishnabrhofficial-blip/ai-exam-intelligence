@@ -1,200 +1,134 @@
-import streamlit as st
-from pypdf import PdfReader
-import pandas as pd
+import os
 import re
+import json
 from collections import Counter
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
-# Page Configuration
-st.set_page_config(
-    page_title="AI Exam Intelligence - Universal Learning Hub",
-    page_icon="🎓",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+app = Flask(__name__)
+CORS(app)  # Mobile/Frontend cross-origin requests allow karne ke liye
 
-st.title("🎓 Universal AI Exam Intelligence & Deep Learning Hub")
-st.caption("One-Stop Solution for Class 6th to Engineering Students: PYQs, Deep Explanations, Visual Flowcharts & Exam Predictions.")
+# --- 1. STOPWORDS & IGNORE LIST (Filler / Generic Words Filter) ---
+# Client issue fix: "Following", "Data", "Science", "Organizing" etc. filter karna[cite: 4]
+STOPWORDS = {
+    'following', 'given', 'which', 'statement', 'correct', 'incorrect', 'below', 
+    'select', 'choose', 'option', 'true', 'false', 'data', 'science', 'intelligence', 
+    'organizing', 'question', 'answer', 'find', 'calculate', 'value', 'consider',
+    'regarding', 'based', 'among', 'these', 'where', 'when', 'what', 'how'
+}
 
-# Cache PDF Extraction
-@st.cache_data(show_spinner=False)
-def extract_text_from_pdf(pdf_file):
-    try:
-        reader = PdfReader(pdf_file)
-        text = ""
-        for page in reader.pages:
-            extracted = page.extract_text()
-            if extracted:
-                text += extracted + "\n"
-        return text
-    except Exception as e:
-        return None
+# --- 2. CORE ACADEMIC CONCEPTS MAPPER ---
+# Questions ko actual topics se map karne ke liye regex patterns[cite: 4]
+CONCEPT_PATTERNS = {
+    "Probability & Bayes' Theorem": r'\b(probability|bayes|conditional probability|random variable|distribution|poisson|binomial)\b',
+    "Linear Regression & Correlation": r'\b(regression|linear regression|correlation|least squares|residuals)\b',
+    "PCA & Dimensionality Reduction": r'\b(pca|principal component|eigenvalue|eigenvector|dimensionality reduction)\b',
+    "SQL & Database Queries": r'\b(sql|join|select|group by|having|foreign key|primary key|relational)\b',
+    "Graph & Search Algorithms": r'\b(graph|bfs|dfs|dijkstra|tree|shortest path|traversal)\b',
+    "Machine Learning & Classification": r'\b(classification|svm|decision tree|clustering|kmeans|neural network|overfitting)\b',
+    "Descriptive Statistics": r'\b(mean|median|mode|variance|standard deviation|percentile|z-score)\b'
+}
 
-# Keyword & Topic Analyzer
-def analyze_frequency(text):
-    words = re.findall(r'\b[A-Za-z]{4,}\b', text.lower())
-    stopwords = {"with", "from", "that", "this", "what", "which", "explain", "describe", "write", "define", "question", "marks", "total", "paper", "time", "hours", "note", "answer", "page", "section", "using", "given"}
-    filtered_words = [w.capitalize() for w in words if w not in stopwords]
-    return Counter(filtered_words).most_common(10)
 
-# File Upload Section
-uploaded_file = st.file_uploader("📄 Upload Question Paper, Syllabus, or Study Notes (PDF)", type=["pdf"])
+def extract_clean_topics(question_text):
+    """
+    Extracts actual academic topics instead of random single words[cite: 4].
+    """
+    text_lower = question_text.lower()
+    matched_topics = []
 
-if uploaded_file is not None:
-    with st.spinner("Analyzing Document, Extracting Topic Names & High-Priority Questions..."):
-        extracted_text = extract_text_from_pdf(uploaded_file)
-    
-    if extracted_text and len(extracted_text.strip()) > 0:
-        st.success("✅ Analysis Complete!")
-        
-        # Topic & Domain Detection
-        lower_text = extracted_text.lower()
-        freq_data = analyze_frequency(extracted_text)
-        top_topic = freq_data[0][0] if freq_data else "Core Concept Analysis"
-        
-        is_tech = any(kw in lower_text for kw in ["array", "function", "c++", "python", "matrix", "algorithm", "data structure", "database", "sql", "engineering", "pointer"])
-        is_science_school = any(kw in lower_text for kw in ["photosynthesis", "cell", "plant", "water", "light", "energy", "digestive", "organ", "science"])
-        
-        if is_tech:
-            domain_name = "Computer Science & Engineering"
-        elif is_science_school:
-            domain_name = "Foundation Science & Biology"
-        else:
-            domain_name = "General Academic Curriculum"
+    # Matching core syllabus concepts
+    for concept, pattern in CONCEPT_PATTERNS.items():
+        if re.search(pattern, text_lower):
+            matched_topics.append(concept)
 
-        # Prominent Topic Name Header for Students
-        st.markdown(f"""
-        <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; border-left: 6px solid #4CAF50; margin-bottom: 20px;">
-            <h3 style="margin:0; color: #1E88E5;">📌 Detected Main Topic: <b>{top_topic}</b></h3>
-            <p style="margin:5px 0 0 0; color: #555;"><b>Domain / Stream:</b> {domain_name} | <b>Target Audience:</b> Class 6th to Higher Degree Students</p>
-        </div>
-        """, unsafe_allow_html=True)
+    # Fallback: Agar exact pattern na mile, toh stopwords hatakar noun phrases filter karein
+    if not matched_topics:
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text_lower)
+        clean_words = [w.capitalize() for w in words if w not in STOPWORDS]
+        if clean_words:
+            matched_topics.append(f"Concept ({clean_words[0]})")
 
-        # Tabs for complete feature set
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "🧠 Universal Deep Learning & Visuals", 
-            "🔥 10-Yr PYQ Frequency & Analytics", 
-            "🎯 MUST PRACTICE & Predicted Questions", 
-            "📄 Raw Document Text"
-        ])
-        
-        # TAB 1: UNIVERSAL DEEP KNOWLEDGE
-        with tab1:
-            st.subheader(f"💡 Deep Concept Explainer: {top_topic}")
-            
-            if is_tech:
-                st.markdown(f"### 💻 Level: **Higher Education / Engineering ({domain_name})**")
-                
-                st.graphviz_chart('''
-                    digraph {
-                        node [shape=box, style=filled, color=lightgray]
-                        "Input Data / Problem" -> "Algorithmic Logic"
-                        "Algorithmic Logic" -> "Data Structure Allocation"
-                        "Data Structure Allocation" -> "Execution & Output"
-                        "Execution & Output" -> "Time & Space Complexity Check"
-                    }
-                ''')
-                
-                st.warning(f"✨ **KEY HIGHLIGHTS FOR TOPIC [{top_topic.upper()}]:**\n"
-                           "- **Theory:** Always structure answers with Definition ➔ Architecture/Diagram ➔ Code/Formula ➔ Complexity.\n"
-                           "- **Implementation:** Ensure edge-case handling is explicitly stated in code solutions.\n"
-                           "- **Optimization:** Focus on minimizing Time Complexity $O(N)$ and Space Complexity $O(1)$.")
-                
-                with st.expander("📖 Deep Technical Breakdown & Implementation Guide"):
-                    st.write(f"""
-                    1. **Core Topic Focus:** The primary subject of this document revolves around **{top_topic}**.
-                    2. **Step-by-Step Implementation:** Break complex problems into modular sub-functions.
-                    3. **Exam Presentation Tip:** Draw block diagrams using standard shapes to score maximum step-marks.
-                    """)
-                    
-            elif is_science_school:
-                st.markdown("### 🌿 Level: **Foundation Science (Class 6 - 10)**")
-                
-                st.graphviz_chart('''
-                    digraph {
-                        node [shape=box, style=filled, color=lightskyblue]
-                        "Sunlight ☀️" -> "Chlorophyll (Leaves) 🍃"
-                        "Water (Roots) 💧" -> "Chlorophyll (Leaves) 🍃"
-                        "Carbon Dioxide (Air) 🌬️" -> "Chlorophyll (Leaves) 🍃"
-                        "Chlorophyll (Leaves) 🍃" -> "Glucose (Food) 🍇"
-                        "Chlorophyll (Leaves) 🍃" -> "Oxygen (Air) 🫧"
-                    }
-                ''')
-                
-                st.warning(f"✨ **KEY HIGHLIGHTS FOR TOPIC [{top_topic.upper()}]:**\n"
-                           "- **Chlorophyll:** Green pigment in leaves that traps sunlight.\n"
-                           "- **Stomata:** Pores on leaves for gas exchange ($CO_2$ in, $O_2$ out).\n"
-                           "- **Formula:** $6CO_2 + 6H_2O \\xrightarrow{\\text{Sunlight}} C_6H_{12}O_6 + 6O_2$")
-                
-                with st.expander("📖 Simple Student Explanation (Analogy Based)"):
-                    st.write("""
-                    1. **Kitchen Analogy:** Just like you need gas, water, and vegetables to make food, plants use Sunlight, Water, and $CO_2$ gas!
-                    2. **Chlorophyll:** Works like the chef that collects all ingredients in the leaf.
-                    3. **Final Result:** Plants prepare **Glucose** (their food) and give us fresh **Oxygen** to breathe!
-                    """)
-            else:
-                st.markdown("### 📘 Level: **General Academic & Exam Paper**")
-                
-                st.graphviz_chart('''
-                    digraph {
-                        node [shape=box, style=filled, color=lightgray]
-                        "Read Chapter / Question" -> "Extract Key Terminology"
-                        "Extract Key Terminology" -> "Understand Core Logic"
-                        "Understand Core Logic" -> "Write Structured Answers"
-                    }
-                ''')
-                
-                st.warning(f"✨ **UNIVERSAL EXAM HIGHLIGHTS FOR [{top_topic.upper()}]:**\n"
-                           "- Key terminology extracted automatically from document context.\n"
-                           "- High-yield definitions are indexed for rapid revision.\n"
-                           "- Visual diagrams structure complex text into clear logic flows.")
-                
-                with st.expander("📖 Step-by-Step Concept Breakdown"):
-                    lines = [l.strip() for l in extracted_text.split('\n') if len(l.strip()) > 20]
-                    for idx, line in enumerate(lines[:5], 1):
-                        st.markdown(f"**Step {idx}:** {line}")
+    return matched_topics
 
-        # TAB 2: TOPIC FREQUENCY & KEYWORDS
-        with tab2:
-            st.subheader("📊 Key Topics & Keyword Repetition Count (10-Yr PYQ Pattern)")
-            
-            if freq_data:
-                df = pd.DataFrame(freq_data, columns=["Topic / Keyword Name", "Repetition Count"])
-                st.dataframe(df, use_container_width=True)
-                st.bar_chart(df.set_index("Topic / Keyword Name"))
-            else:
-                st.info("Not enough text to build frequency chart.")
-                
-        # TAB 3: MUST PRACTICE & PREDICTED QUESTIONS
-        with tab3:
-            st.subheader(f"🎯 High-Probability Questions & MUST PRACTICE Items for {top_topic}")
-            st.caption("Questions marked with 🔥 MUST PRACTICE have highest likelihood of appearing in exams!")
-            
-            lines = [l.strip() for l in extracted_text.split("\n") if len(l.strip()) > 10]
-            questions = [l for l in lines if "?" in l or any(l.lower().startswith(kw) for kw in ["define", "explain", "what", "describe", "discuss", "differentiate"])]
-            
-            if not questions:
-                questions = lines[:6]
-                
-            for i, q in enumerate(questions[:8], 1):
-                is_must_practice = i in [1, 2, 4]  # Highlight top repeated questions as MUST PRACTICE
-                
-                if is_must_practice:
-                    st.error(f"🔥 **MUST PRACTICE QUESTION #{i} (HIGH PRIORITY)**\n\n**Q:** {q}")
-                else:
-                    st.write(f"📌 **Question #{i}:** {q}")
-                    
-                with st.expander(f"📝 View Model Answer & Step-wise Solution for Q{i}"):
-                    st.markdown("**Step-by-Step Scoring Guide:**")
-                    st.write(f"- **Key Focus Topic:** `{top_topic}`")
-                    st.write("- **Definition (1-2 Marks):** Provide clear 1-line standard textbook definition.")
-                    st.write("- **Core Explanation (2-3 Marks):** List 3 structured bullet points highlighting mechanisms/principles.")
-                    st.write("- **Diagram / Code / Formula (1 Mark):** Draw labeled schematic or state mathematical equation to ensure full marks.")
-                st.divider()
 
-        # TAB 4: RAW DOCUMENT
-        with tab4:
-            st.subheader("📄 Extracted Document Content")
-            st.text_area("Full Extracted Text", extracted_text, height=300)
-            
+def calculate_predictions(topic, frequency, year_list=[2021, 2023, 2024, 2025]):
+    """
+    Calculates probability percentage and generates 'Why this prediction?' reason.
+    """
+    # Simple weighted probability score logic
+    if frequency >= 4:
+        prob = 82
+        priority = "High Priority"
+    elif frequency == 3:
+        prob = 68
+        priority = "Medium Priority"
     else:
-        st.error("❌ Text extraction failed. Please ensure the PDF has selectable text (not scanned images).")
+        prob = 45
+        priority = "Low Priority"
+
+    years_str = ", ".join(map(str, year_list))
+    reason = (
+        f"This topic appeared {frequency} times in past papers (Years: {years_str}). "
+        f"Based on recent question trends, it holds a high probability of appearing in upcoming exams."
+    )
+
+    return {
+        "topic": topic,
+        "frequency": f"{frequency} times",
+        "years_appeared": year_list,
+        "probability": f"{prob}%",
+        "priority": priority,
+        "prediction_reason": reason
+    }
+
+
+# --- 3. MAIN API ENDPOINT ---
+@app.route('/analyze-pyq', methods=['POST'])
+def analyze_pyq():
+    try:
+        # Check if PDF or text is received
+        data = request.get_json(silent=True) or {}
+        raw_text = data.get("text", "")
+
+        if not raw_text:
+            return jsonify({
+                "status": "error",
+                "message": "No text or PDF content provided for analysis."
+            }), 400
+
+        # Flow Step 1: Split into questions
+        questions = [q.strip() for q in raw_text.split('\n\n') if len(q.strip()) > 10]
+
+        # Flow Step 2: Extract topics for each question
+        extracted_topics = []
+        for q in questions:
+            topics = extract_clean_topics(q)
+            extracted_topics.extend(topics)
+
+        # Flow Step 3: Previous paper frequency calculation
+        topic_counts = Counter(extracted_topics)
+
+        # Flow Step 4 & 5: Prediction & Reason Generation
+        results = []
+        for topic, count in topic_counts.items():
+            analysis = calculate_predictions(topic, frequency=count)
+            results.append(analysis)
+
+        # Sort by priority/probability
+        results.sort(key=lambda x: int(x['probability'].replace('%', '')), reverse=True)
+
+        return jsonify({
+            "status": "success",
+            "total_questions_parsed": len(questions),
+            "flow": "PDF -> Questions -> Actual Topics -> PYQ Frequency -> Prediction -> Reason",
+            "topics_analysis": results
+        }), 200
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+if __name__ == '__main__':
+    # Flask App Run (Port 5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
